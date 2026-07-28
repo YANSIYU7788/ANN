@@ -125,7 +125,7 @@ for feature, label in [
 
 
 # =========================
-# 4. Prediction (SHAP removed)
+# 4. Prediction and SHAP Force Plot (文字列表已移除)
 # =========================
 if st.button("Predict", use_container_width=True):
     input_data = {
@@ -154,3 +154,69 @@ if st.button("Predict", use_container_width=True):
         st.error("High risk of dNCR")
     else:
         st.success("Low risk of dNCR")
+
+    # A zero-valued reference row, following the supplied deployment example.
+    background_data = pd.DataFrame(
+        [{feature: 0.0 for feature in FEATURE_COLS}],
+        columns=FEATURE_COLS,
+    )
+
+    def shap_predict(values):
+        return predict_probability(ann_models, values)
+
+    # ============================================================
+    # 只保留 SHAP Force Plot，删除了文字列表部分
+    # ============================================================
+    try:
+        with st.spinner("Generating SHAP explanation..."):
+            explainer = shap.KernelExplainer(
+                model=shap_predict,
+                data=background_data,
+                link="identity",
+            )
+            raw_shap_values = explainer.shap_values(X_input, nsamples=100)
+
+        shap_values = np.asarray(raw_shap_values)
+        if shap_values.ndim == 2:
+            shap_values = shap_values[0]
+        elif shap_values.ndim > 2:
+            shap_values = shap_values.reshape(-1, len(FEATURE_COLS))[0]
+
+        # 删除了这段文字列表：
+        # st.write("SHAP values for each feature:")
+        # for feature in DISPLAY_FEATURES:
+        #     index = FEATURE_COLS.index(feature)
+        #     st.write(f"{feature}: {float(shap_values[index]):.4f} ...")
+
+        # 直接显示 SHAP Force Plot
+        st.subheader("SHAP Force Plot")
+
+        shap_vals_list = []
+        feature_vals_list = []
+        feature_names_list = []
+
+        for feature in DISPLAY_FEATURES:
+            index = FEATURE_COLS.index(feature)
+            shap_vals_list.append(float(shap_values[index]))
+            feature_vals_list.append(input_data_original[feature])
+            feature_names_list.append(feature)
+
+        force_plot = shap.force_plot(
+            base_value=float(np.asarray(explainer.expected_value).reshape(-1)[0]),
+            shap_values=np.array(shap_vals_list),
+            features=np.array(feature_vals_list),
+            feature_names=feature_names_list,
+            matplotlib=False,
+        )
+
+        html_content = (
+            f"<head>{shap.getjs()}</head>"
+            f"<body style='margin:0'>{force_plot.html()}</body>"
+        )
+        st.components.v1.html(html_content, height=350, scrolling=False)
+
+    except Exception as exc:
+        st.warning(
+            "Prediction completed, but the SHAP explanation could not be generated: "
+            f"{exc}"
+        )
